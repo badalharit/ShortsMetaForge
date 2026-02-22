@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+"""Video I/O utilities for scanning, frame extraction, and file moving."""
+
+from pathlib import Path
+from typing import Iterable, List
+import shutil
+
+import cv2
+
+
+VIDEO_EXTENSIONS = {".mp4", ".mov"}
+
+
+class VideoProcessor:
+    """Handles local video discovery and lifecycle operations."""
+
+    def __init__(self, input_dir: Path, processed_dir: Path, frame_second: int) -> None:
+        self.input_dir = input_dir
+        self.processed_dir = processed_dir
+        self.frame_second = frame_second
+
+    def scan_videos(self) -> List[Path]:
+        """Return sorted candidate video files from input directory."""
+        files: Iterable[Path] = self.input_dir.iterdir()
+        return sorted([f for f in files if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS])
+
+    def extract_frame(self, video_path: Path) -> "cv2.typing.MatLike":
+        """Extract a single representative frame based on configured second."""
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise RuntimeError(f"Unable to open video: {video_path}")
+
+        # Compute target frame using fps; fallback to first frame when fps is unavailable.
+        fps = cap.get(cv2.CAP_PROP_FPS) or 0
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        if fps <= 0:
+            target_frame = 0
+        else:
+            target_frame = int(self.frame_second * fps)
+        # Clamp index to valid range for shorter clips.
+        if frame_count > 0:
+            target_frame = min(target_frame, max(frame_count - 1, 0))
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            raise RuntimeError(f"Unable to extract frame from {video_path.name}")
+        return frame
+
+    def move_to_processed(self, video_path: Path) -> Path:
+        """Move file into processed folder with collision-safe renaming."""
+        self.processed_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.processed_dir / video_path.name
+        counter = 1
+        while destination.exists():
+            destination = self.processed_dir / f"{video_path.stem}_{counter}{video_path.suffix}"
+            counter += 1
+        shutil.move(str(video_path), str(destination))
+        return destination

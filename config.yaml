@@ -1,0 +1,17 @@
+# Absolute project-local paths to avoid C: defaults.
+paths:
+  input_dir: "D:/ShortsMetaForge/incoming"
+  processed_dir: "D:/ShortsMetaForge/processed"
+  output_csv: "D:/ShortsMetaForge/data/youtube_metadata.csv"
+
+# Runtime behavior for video/frame processing.
+processing:
+  # Frame extraction offset (seconds) used for vision inference.
+  extract_frame_second: 3
+  # Preferred device; app falls back to CPU when CUDA is unavailable.
+  device: "cuda"
+
+# SEO output limits for title and tags.
+seo:
+  max_tags: 15
+  title_max_length: 80

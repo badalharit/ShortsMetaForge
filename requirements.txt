@@ -1,0 +1,14 @@
+# Core ML runtime (CUDA wheel selection depends on your PyTorch install command).
+torch
+# Hugging Face model APIs (BLIP + CLIP).
+transformers
+# Video frame extraction.
+opencv-python
+# Image conversion utilities.
+pillow
+# CSV I/O and dataframe operations.
+pandas
+# YAML configuration loading.
+pyyaml
+# Numeric ops for image-stat mood inference.
+numpy

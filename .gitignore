@@ -1,0 +1,9 @@
+.venv/
+.cache/
+.pycache/
+**/__pycache__/
+*.pyc
+incoming/
+processed/
+data/*.csv
+*.log
