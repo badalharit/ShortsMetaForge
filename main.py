@@ -48,7 +48,11 @@ def run(config_path: Path) -> None:
         frame_second=config.processing.extract_frame_second,
     )
     vision_engine = VisionEngine(device=device)
-    seo_engine = SEOEngine(max_tags=config.seo.max_tags, title_max_length=config.seo.title_max_length)
+    seo_engine = SEOEngine(
+        max_tags=config.seo.max_tags,
+        title_max_length=config.seo.title_max_length,
+        specialization_mode=config.seo.specialization_mode,
+    )
     csv_writer = CSVWriter(output_csv=config.paths.output_csv)
 
     videos = video_processor.scan_videos()

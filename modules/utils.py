@@ -38,6 +38,7 @@ class SEOConfig:
 
     max_tags: int
     title_max_length: int
+    specialization_mode: str
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,7 @@ def load_config(config_path: Path) -> AppConfig:
     seo = SEOConfig(
         max_tags=int(raw["seo"]["max_tags"]),
         title_max_length=int(raw["seo"]["title_max_length"]),
+        specialization_mode=str(raw["seo"].get("specialization_mode", "general")),
     )
     return AppConfig(paths=paths, processing=processing, seo=seo)
 

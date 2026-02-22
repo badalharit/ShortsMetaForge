@@ -19,3 +19,4 @@ processing:
 seo:
   max_tags: 15
   title_max_length: 80
+  specialization_mode: "nature"

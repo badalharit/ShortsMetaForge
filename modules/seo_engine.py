@@ -2,9 +2,11 @@ from __future__ import annotations
 
 """SEO metadata generation for YouTube Shorts."""
 
+from collections import deque
+from difflib import SequenceMatcher
 import hashlib
 import re
-from typing import Dict, List, Tuple
+from typing import Deque, Dict, List, Tuple
 
 from modules.keyword_engine import KeywordEngine
 
@@ -60,13 +62,24 @@ class SEOEngine:
         },
     }
 
-    def __init__(self, max_tags: int, title_max_length: int) -> None:
+    _NATURE_WORDS = {
+        "landscape": ["meadow", "alpine", "valley", "woodland", "coastal", "horizon", "sunrise", "dusk"],
+        "atmosphere": ["golden light", "morning mist", "drifting clouds", "gentle breeze", "still water"],
+        "sensory": ["whispering leaves", "flowing stream", "soft sunlight", "rustling trees"],
+        "calm_cta": ["Take a moment.", "Let this breathe.", "Pause and reset."],
+        "hashtags": ["#NatureLovers", "#ScenicViews", "#CalmVibes", "#MindfulMoments"],
+    }
+
+    def __init__(self, max_tags: int, title_max_length: int, specialization_mode: str = "general") -> None:
         self.max_tags = max(8, min(15, int(max_tags)))
         self.title_max_length = title_max_length
+        self.specialization_mode = specialization_mode.strip().lower()
         self.keyword_engine = KeywordEngine()
         self._seen_titles: set[str] = set()
-        self._used_title_structures: set[str] = set()
-        self._used_long_tails: set[str] = set()
+        # Pattern memory system: rolling windows enforce anti-repetition across big batches.
+        self._recent_title_structures: Deque[str] = deque(maxlen=25)
+        self._recent_titles: Deque[str] = deque(maxlen=40)
+        self._recent_phrases: Deque[str] = deque(maxlen=20)  # long-tail, CTA, emotional adjectives.
 
     def build_metadata(
         self,
@@ -104,9 +117,8 @@ class SEOEngine:
             variant_seed=1,
         )
 
-        # Track used structures for low repetition across large batches.
-        self._used_title_structures.add(structure_a)
-        self._used_title_structures.add(structure_b)
+        self._remember_structure(structure_a)
+        self._remember_structure(structure_b)
 
         title_a = self._to_unique_title(title_a)
         title_b = self._to_unique_title(title_b, allow_duplicate_of=title_a)
@@ -142,21 +154,21 @@ class SEOEngine:
         digest: int,
         variant_seed: int,
     ) -> Tuple[str, str]:
-        # Virality scaling: hook intensity and word choice adapt by score band.
-        intensity = self._intensity_band(virality_score)
+        # Virality tier logic: distinct tones by score band.
+        tier = self._virality_tier(virality_score)
         emotion = self._pick_emotion_word(mood, digest + variant_seed)
         benefit = self._pick_niche(scene, "benefits", digest + variant_seed)
         scene_tc = self._title_case(scene)
         seconds = 8 + ((digest + variant_seed) % 19)
         outcome = self._pick_outcome(scene, mood, digest + variant_seed)
 
-        power_prefix = ""
-        if intensity == "high":
-            power_prefix = self._pick(["Pure", "Unbelievable", "Ultimate"], digest + variant_seed)
-        elif intensity == "low":
-            power_prefix = self._pick(["Soft", "Gentle", "Subtle"], digest + variant_seed)
+        prefix = ""
+        if tier == "elite":
+            prefix = self._pick(["Pure", "Unbelievable", "Ultimate"], digest + variant_seed)
+        elif tier == "low":
+            prefix = self._pick(["Soft", "Quiet", "Gentle"], digest + variant_seed)
 
-        # Mutation logic: rotate grammar structures, not just words.
+        # Mutation logic: rotate grammar structures, then rebalance by recent structure memory.
         structures = [
             ("A", f"{scene_tc}: Watch This For {self._title_case(benefit)}"),
             ("B", f"{self._title_case(benefit)} Begins With This {scene_tc}"),
@@ -165,17 +177,27 @@ class SEOEngine:
             ("E", f"POV: {scene_tc} That Feels {self._title_case(emotion)}"),
             ("F", f"{scene_tc}: Watch This {self._title_case(primary_keyword)}"),
         ]
-
-        # Prefer structures not yet used in current batch for lower repetition.
         ordered = structures[(digest + variant_seed) % len(structures):] + structures[: (digest + variant_seed) % len(structures)]
         chosen_key, chosen_title = ordered[0]
         for key, title in ordered:
-            if key not in self._used_title_structures:
+            if self._structure_count(key) <= 4:
                 chosen_key, chosen_title = key, title
                 break
 
-        if power_prefix:
-            chosen_title = f"{power_prefix} {chosen_title}"
+        # Micro-entropy injection: rare human-like variation for anti-pattern defense.
+        if ((digest + variant_seed) % 13) == 0:
+            chosen_title = chosen_title.replace(": ", ": Just ", 1)
+        if ((digest + variant_seed) % 29) == 0 and tier in {"elite", "high"}:
+            chosen_title = f"{chosen_title} {self._pick(['✨', '🌿'], digest)}"
+
+        if prefix:
+            chosen_title = f"{prefix} {chosen_title}"
+
+        # Light semantic filter: regenerate if too similar to recent titles.
+        if self._is_title_too_similar(chosen_title):
+            chosen_key = f"{chosen_key}_alt"
+            chosen_title = f"{scene_tc}: {self._title_case(focus)} For {self._title_case(emotion)}"
+
         return self._normalize_line(chosen_title), chosen_key
 
     def _build_description(
@@ -189,52 +211,71 @@ class SEOEngine:
         virality_score: int,
         digest: int,
     ) -> str:
-        # Virality scaling: stronger/softer tone by score band.
-        intensity = self._intensity_band(virality_score)
+        # Virality tier logic: tone clearly differs by performance band.
+        tier = self._virality_tier(virality_score)
         emotion = self._pick_emotion_word(mood, digest)
         niche = self._pick_niche(scene, "niche", digest)
 
-        if intensity == "high":
+        if tier == "elite":
             hook_options = [
                 f"A {emotion} hook with pure visual impact.",
-                f"An unbelievable {scene} moment that grabs attention instantly.",
+                f"An unbelievable {scene} moment that locks attention instantly.",
                 f"Ultimate short-form {scene} energy with a {emotion} finish.",
             ]
             cta_options = [
-                "Follow now for premium shorts that hit this hard. #Shorts",
-                "Share this if you want more powerful visuals like this. #Shorts",
+                "Follow now for premium shorts with this level of impact. #Shorts",
+                "Share this now if you want more visuals like this. #Shorts",
             ]
-        elif intensity == "mid":
+        elif tier == "high":
             hook_options = [
                 f"A {emotion} visual hook that keeps you watching.",
-                f"This {scene} short opens with a strong {emotion} mood.",
-                f"An eye-catching {scene} moment with balanced cinematic tone.",
+                f"This {scene} short opens with strong {emotion} tone.",
+                f"Bold {scene} storytelling with balanced cinematic energy.",
             ]
             cta_options = [
                 f"Follow for more {scene} shorts in this style. #Shorts",
                 "Save this and come back when you need this vibe. #Shorts",
             ]
-        else:
+        elif tier == "mid":
             hook_options = [
-                f"A soft {emotion} visual moment designed to slow the scroll.",
-                f"A calm {scene} atmosphere with gentle cinematic detail.",
-                f"A soothing short that highlights pure visual mood.",
+                f"A calm {emotion} visual moment with aesthetic depth.",
+                f"This {scene} sequence carries a steady cinematic mood.",
+                f"A polished short that highlights visual atmosphere.",
             ]
             cta_options = [
-                "Save this for a calm visual reset. #Shorts",
-                "Follow for more relaxing aesthetic shorts. #Shorts",
+                "Save this visual for later. #Shorts",
+                f"Follow for more aesthetic {scene} shorts. #Shorts",
+            ]
+        else:
+            hook_options = [
+                f"A soft {emotion} visual pause for a quieter scroll.",
+                f"A gentle {scene} atmosphere with subtle cinematic texture.",
+                "A soothing short designed for calm viewing.",
+            ]
+            cta_options = [
+                "Take a calm pause and enjoy the visuals. #Shorts",
+                "Save this for a quiet reset. #Shorts",
             ]
 
-        # Strict 4-part structure with natural 2-3 keyword placements.
-        line1 = self._pick(hook_options, digest)
+        # Nature specialization logic: immersive language and calm-biased CTA.
+        if self.specialization_mode == "nature":
+            nature_atmosphere = self._pick(self._NATURE_WORDS["atmosphere"], digest)
+            hook_options = [
+                f"A {emotion} nature moment shaped by {nature_atmosphere}.",
+                f"Cinematic nature with {nature_atmosphere} and quiet depth.",
+                f"A peaceful visual reset with {nature_atmosphere}.",
+            ]
+            cta_options = [f"{self._pick(self._NATURE_WORDS['calm_cta'], digest)} #Shorts"]
+
+        line1 = self._pick_with_memory(hook_options, digest)
         line2 = f"{self._title_case(primary_keyword)} with {self._clean_phrase(secondary_keyword)} around {self._clean_phrase(focus)}."
         line3 = f"Built for {niche}: {self._clean_phrase(long_tails[0])}, {self._clean_phrase(long_tails[1])}, {self._clean_phrase(primary_keyword)}."
-        line4 = self._pick(cta_options, digest // 5)
+        line4 = self._pick_with_memory(cta_options, digest // 5)
 
         return "\n".join([self._normalize_line(line1), self._normalize_line(line2), self._normalize_line(line3), self._normalize_line(line4)])
 
     def _build_tags(self, scene: str, mood: str, primary_keyword: str, keyword_pool: List[str], long_tails: List[str]) -> str:
-        # Long-tail injection into tags for higher search specificity.
+        # Tag diversity control: remove semantically near-duplicate tags within the same row.
         niche_terms = self._NICHE_BIAS.get(scene, self._NICHE_BIAS["other"])["niche"]
         tags = [
             primary_keyword.lower(),
@@ -247,8 +288,12 @@ class SEOEngine:
             *[t.lower() for t in long_tails],
             *[k.lower() for k in keyword_pool[:8]],
         ]
+        if self.specialization_mode == "nature":
+            tags.extend(["nature lovers", "scenic views", "calm vibes", "mindful moments"])
+
         deduped = self._dedupe_lower(tags)
-        selected = deduped[: self.max_tags]
+        filtered = self._filter_similar_tags(deduped)
+        selected = filtered[: self.max_tags]
         if len(selected) < 8:
             selected = self._dedupe_lower(selected + [f"{scene.lower()} shorts", f"{mood.lower()} vibes", "visual storytelling"])[:8]
         return ", ".join(selected)
@@ -272,6 +317,9 @@ class SEOEngine:
             "#TrendingShorts",
             *dynamic,
         ]
+        if self.specialization_mode == "nature":
+            pool.extend(self._NATURE_WORDS["hashtags"])
+
         deduped = self._dedupe_preserve(pool)
         start = digest % 2
         tail = deduped[3 + start : 6 + start]
@@ -288,15 +336,26 @@ class SEOEngine:
                 f"{scene} cinematic short",
             ]
         )
+        if self.specialization_mode == "nature":
+            # Nature specialization long-tail generation.
+            landscape = self._pick(self._NATURE_WORDS["landscape"], digest)
+            atmosphere = self._pick(self._NATURE_WORDS["atmosphere"], digest + 2)
+            candidates.extend(
+                [
+                    f"cinematic {landscape} sunrise",
+                    f"serene {landscape} escape",
+                    f"peaceful {atmosphere}",
+                ]
+            )
         candidates.extend([k for k in keyword_pool if " " in k and len(k.split()) >= 2])
 
         selected: List[str] = []
         for phrase in candidates:
             clean = self._clean_phrase(phrase).lower()
-            if not clean or clean in self._used_long_tails:
+            if not clean or clean in self._recent_phrases:
                 continue
             selected.append(clean)
-            self._used_long_tails.add(clean)
+            self._remember_phrase(clean)
             if len(selected) >= limit:
                 break
 
@@ -321,8 +380,13 @@ class SEOEngine:
 
     def _pick_emotion_word(self, mood: str, seed: int) -> str:
         pool = self._EMOTION_SYNONYMS.get(mood, ["captivating"])
-        # Synonym rotation is hash-seeded for stable but varied output.
-        return self._pick(pool, seed)
+        # Synonym rotation is hash-seeded, with recent-phrase avoidance.
+        ordered = pool[seed % len(pool):] + pool[: seed % len(pool)]
+        for word in ordered:
+            if word not in self._recent_phrases:
+                self._remember_phrase(word)
+                return word
+        return ordered[0]
 
     def _pick_outcome(self, scene: str, mood: str, seed: int) -> str:
         options = {
@@ -339,8 +403,10 @@ class SEOEngine:
     def _pick_niche(self, scene: str, key: str, seed: int) -> str:
         return self._pick(self._NICHE_BIAS.get(scene, self._NICHE_BIAS["other"])[key], seed)
 
-    def _intensity_band(self, score: int) -> str:
-        if score >= 75:
+    def _virality_tier(self, score: int) -> str:
+        if score >= 85:
+            return "elite"
+        if score >= 70:
             return "high"
         if score >= 50:
             return "mid"
@@ -360,6 +426,7 @@ class SEOEngine:
             suffix = " II"
             cleaned = f"{cleaned[: max(1, self.title_max_length - len(suffix))]}{suffix}"
         self._seen_titles.add(cleaned)
+        self._recent_titles.append(cleaned.lower())
         return cleaned
 
     def _title_case(self, text: str) -> str:
@@ -409,3 +476,49 @@ class SEOEngine:
 
     def _digest(self, *parts: str) -> int:
         return int(hashlib.md5("|".join(parts).encode("utf-8")).hexdigest(), 16)
+
+    def _structure_count(self, key: str) -> int:
+        return sum(1 for item in self._recent_title_structures if item == key)
+
+    def _remember_structure(self, key: str) -> None:
+        self._recent_title_structures.append(key)
+
+    def _remember_phrase(self, phrase: str) -> None:
+        self._recent_phrases.append(phrase.lower())
+
+    def _pick_with_memory(self, options: List[str], seed: int) -> str:
+        ordered = options[seed % len(options):] + options[: seed % len(options)]
+        for opt in ordered:
+            low = opt.lower()
+            if low not in self._recent_phrases:
+                self._remember_phrase(low)
+                return opt
+        self._remember_phrase(ordered[0].lower())
+        return ordered[0]
+
+    def _is_title_too_similar(self, candidate: str) -> bool:
+        normalized = candidate.lower().strip()
+        for recent in self._recent_titles:
+            if SequenceMatcher(a=normalized, b=recent).ratio() >= 0.86:
+                return True
+        return False
+
+    def _filter_similar_tags(self, tags: List[str]) -> List[str]:
+        def token_set(tag: str) -> set[str]:
+            return set(re.findall(r"[a-z0-9]+", tag.lower()))
+
+        filtered: List[str] = []
+        for tag in tags:
+            current = token_set(tag)
+            near_duplicate = False
+            for kept in filtered:
+                kept_set = token_set(kept)
+                inter = len(current & kept_set)
+                union = len(current | kept_set) or 1
+                # Lightweight semantic-near check via token overlap.
+                if (inter / union) > 0.8:
+                    near_duplicate = True
+                    break
+            if not near_duplicate:
+                filtered.append(tag)
+        return filtered
