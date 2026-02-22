@@ -6,8 +6,12 @@ paths:
 
 # Runtime behavior for video/frame processing.
 processing:
-  # Frame extraction offset (seconds) used for vision inference.
+  # Legacy single-frame offset; kept as fallback when frame ratios are unavailable.
   extract_frame_second: 3
+  # Three contextual snapshots: early, middle, late.
+  extract_frame_ratios: [0.15, 0.5, 0.85]
+  # Fresh run mode: clear prior CSV output before processing incoming videos.
+  wipe_output_csv_on_start: true
   # Preferred device; app falls back to CPU when CUDA is unavailable.
   device: "cuda"
 

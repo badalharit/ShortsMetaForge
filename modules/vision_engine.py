@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Vision pipeline: BLIP captioning, CLIP scene classification, mood and virality."""
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List
 
@@ -74,6 +75,44 @@ class VisionEngine:
             mood=mood,
             virality_score=virality_score,
         )
+
+    def analyze_frames(self, frames_bgr: List["cv2.typing.MatLike"]) -> VisionResult:
+        """Analyze multiple frames and aggregate into one contextual result."""
+        if not frames_bgr:
+            raise ValueError("frames_bgr must contain at least one frame.")
+
+        per_frame: List[VisionResult] = []
+        scene_prob_sums: Dict[str, float] = {label: 0.0 for label in self.SCENE_LABELS}
+
+        for frame in frames_bgr:
+            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(image_rgb)
+
+            caption = self._caption(pil_image)
+            scene_scores = self._scene_scores(pil_image)
+            for label, score in scene_scores.items():
+                scene_prob_sums[label] += float(score)
+            scene = max(scene_scores, key=scene_scores.get)
+            mood = self._infer_mood(frame, scene)
+            virality_score = self._virality_score(scene, mood, caption)
+
+            per_frame.append(
+                VisionResult(
+                    caption=caption,
+                    scene=scene,
+                    mood=mood,
+                    virality_score=virality_score,
+                )
+            )
+
+        # Scene selection by average CLIP probability across all snapshots.
+        scene = max(scene_prob_sums, key=scene_prob_sums.get)
+        # Mood selection by majority vote with center-frame tie-break.
+        mood = self._aggregate_mood([item.mood for item in per_frame])
+        caption = self._merge_captions([item.caption for item in per_frame])
+        virality_score = self._aggregate_virality([item.virality_score for item in per_frame])
+
+        return VisionResult(caption=caption, scene=scene, mood=mood, virality_score=virality_score)
 
     def _caption(self, image: Image.Image) -> str:
         """Generate a concise natural-language caption with BLIP."""
@@ -149,3 +188,34 @@ class VisionEngine:
 
         # Clamp score for consistent downstream output.
         return max(1, min(100, score))
+
+    def _merge_captions(self, captions: List[str]) -> str:
+        """Merge multiple frame captions while avoiding exact repetition."""
+        merged: List[str] = []
+        for caption in captions:
+            cleaned = " ".join(caption.split()).strip()
+            if cleaned and cleaned.lower() not in [m.lower() for m in merged]:
+                merged.append(cleaned)
+        return "; ".join(merged[:3]) if merged else "short visual sequence"
+
+    def _aggregate_mood(self, moods: List[str]) -> str:
+        """Aggregate moods by vote; break ties with center frame mood."""
+        counts = Counter(moods)
+        top_count = max(counts.values())
+        top = [m for m, c in counts.items() if c == top_count]
+        if len(top) == 1:
+            return top[0]
+        center = moods[len(moods) // 2]
+        if center in top:
+            return center
+        return top[0]
+
+    def _aggregate_virality(self, scores: List[int]) -> int:
+        """Aggregate per-frame virality with center-weighted average."""
+        if len(scores) == 1:
+            return scores[0]
+        if len(scores) == 2:
+            return int(round((scores[0] * 0.4) + (scores[1] * 0.6)))
+        # Default 3-frame weighting: early, middle, late.
+        weighted = (scores[0] * 0.2) + (scores[1] * 0.6) + (scores[2] * 0.2)
+        return int(round(weighted))

@@ -32,6 +32,9 @@ def run(config_path: Path) -> None:
     # Load runtime configuration and ensure required folders exist.
     config = load_config(config_path)
     ensure_directories(config)
+    if config.processing.wipe_output_csv_on_start and config.paths.output_csv.exists():
+        config.paths.output_csv.unlink()
+        logger.info("Wiped previous CSV for fresh run", extra={"event": "wipe_csv", "filename_ctx": str(config.paths.output_csv)})
 
     # Resolve runtime device with automatic CUDA fallback behavior.
     device = resolve_device(config.processing.device)
@@ -55,8 +58,8 @@ def run(config_path: Path) -> None:
     for index, video_path in enumerate(videos, start=1):
         filename = video_path.name
 
-        # Skip CSV duplicates and move file out of incoming to avoid re-processing.
-        if csv_writer.is_duplicate(filename):
+        # Skip duplicates only when running in append mode.
+        if (not config.processing.wipe_output_csv_on_start) and csv_writer.is_duplicate(filename):
             logger.info("Skipped duplicate", extra={"event": "skip_duplicate", "filename_ctx": filename})
             moved = video_processor.move_to_processed(video_path)
             logger.info("Moved duplicate video", extra={"event": "move_duplicate", "filename_ctx": str(moved)})
@@ -68,10 +71,10 @@ def run(config_path: Path) -> None:
         )
 
         try:
-            # 1) Extract representative frame from the short.
-            frame = video_processor.extract_frame(video_path)
-            # 2) Run vision analysis (caption, scene, mood, score).
-            vision = vision_engine.analyze(frame)
+            # 1) Extract early/middle/late frames for context-aware analysis.
+            frames = video_processor.extract_frames(video_path, ratios=config.processing.extract_frame_ratios)
+            # 2) Run aggregated multi-frame vision analysis.
+            vision = vision_engine.analyze_frames(frames)
 
             # 3) Generate SEO-ready metadata payload.
             seo_payload = seo_engine.build_metadata(

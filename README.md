@@ -5,12 +5,12 @@ Production-grade AI metadata generation pipeline for YouTube Shorts.
 ## What It Does
 
 - Scans `incoming/` for `.mp4` and `.mov`
-- Extracts one frame per video (configurable second)
+- Extracts three contextual frames per video (early/middle/late)
 - Generates visual caption (BLIP)
 - Classifies scene (CLIP)
 - Infers mood + virality score
 - Generates YouTube-ready title, description, tags, hashtags
-- Appends results to CSV (duplicate filename-safe)
+- Rebuilds CSV from incoming videos when fresh-run mode is enabled
 - Moves processed videos to `processed/`
 - Continues batch on per-video errors
 
@@ -105,6 +105,8 @@ paths:
 
 processing:
   extract_frame_second: 3
+  extract_frame_ratios: [0.15, 0.5, 0.85]
+  wipe_output_csv_on_start: true
   device: "cuda"
 
 seo:
@@ -115,7 +117,8 @@ seo:
 Notes:
 
 - Keep paths explicitly on `D:/ShortsMetaForge`
-- `extract_frame_second` is clamped by actual video length
+- `extract_frame_ratios` defines contextual snapshots used for final scene/mood decision
+- `wipe_output_csv_on_start: true` clears old CSV rows and regenerates from current `incoming/` only
 
 ## Run
 
@@ -157,6 +160,6 @@ Structured JSON logs are emitted to stdout with event metadata for:
 
 - First run downloads BLIP/CLIP model weights from Hugging Face
 - Runtime cache paths for Hugging Face/Torch/Python bytecode are enforced to project-local directories by the app
-- CSV append mode is used; header created only once
+- CSV is wiped at startup when `wipe_output_csv_on_start` is enabled
 - Duplicate filename entries are skipped
 - Processed files are moved to `processed/` and auto-renamed on name collisions

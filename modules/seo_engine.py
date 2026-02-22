@@ -106,14 +106,13 @@ class SEOEngine:
         mood_word = self._MOOD_WORD.get(mood, mood)
         style_token = self._pick(self._SCENE_STYLE.get(scene, ["clip"]), digest // 7)
         top_searches = ", ".join(keywords[:5])
-        momentum = self._momentum_text(virality_score)
 
         hook_lines = [
-            f"{scene.title()} visuals with a {mood_word} edge. This one stays with you.",
-            f"Instant scroll-stopper: {mood_word} {scene} vibes in one clean shot.",
-            f"If you like {style_token}, this short lands hard.",
-            f"This clip starts simple and ends with a {mood_word} punch.",
-            f"Short, sharp, and {mood_word} from the first second.",
+            f"{scene.title()} visuals with a {mood_word} edge that instantly pulls you in.",
+            f"Scroll-stopping {scene} energy with a polished {mood_word} finish.",
+            f"If you enjoy {style_token}, this short delivers a premium visual moment.",
+            f"A sharp {scene} sequence with a {mood_word} tone that keeps attention locked.",
+            f"Cinematic pacing, strong atmosphere, and a distinctly {mood_word} vibe.",
         ]
         context_lines = [
             f"On screen: {clean_caption}.",
@@ -128,10 +127,10 @@ class SEOEngine:
             f"Best match topics: {top_searches}.",
         ]
         cta_lines = [
-            f"Would you watch this again? Replay potential: {virality_score}/100 ({momentum}).",
-            f"Drop your rating below. Momentum score: {virality_score}/100 ({momentum}).",
-            f"Share with someone who loves {scene} edits. Score: {virality_score}/100 ({momentum}).",
-            f"Save this for later if this vibe is your style. Score: {virality_score}/100 ({momentum}).",
+            f"Would you replay this short or send it to a friend?",
+            f"Follow for more high-quality {scene} shorts with this vibe.",
+            f"Share this with someone who appreciates clean visual storytelling.",
+            f"Save this short if this style matches your feed.",
         ]
 
         line1 = self._pick(hook_lines, digest)
@@ -234,16 +233,6 @@ class SEOEngine:
         cleaned = cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
         cleaned = cleaned.rstrip(".!?")
         return cleaned
-
-    def _momentum_text(self, score: int) -> str:
-        """Map numeric virality score to a human-friendly descriptor."""
-        if score >= 85:
-            return "very high"
-        if score >= 70:
-            return "strong"
-        if score >= 55:
-            return "solid"
-        return "niche"
 
     def _digest(self, *parts: str) -> int:
         """Deterministic hash helper for stable template variation."""

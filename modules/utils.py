@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 import json
 import logging
 
@@ -27,6 +27,8 @@ class ProcessingConfig:
     """Runtime processing options."""
 
     extract_frame_second: int
+    extract_frame_ratios: List[float]
+    wipe_output_csv_on_start: bool
     device: str
 
 
@@ -90,6 +92,8 @@ def load_config(config_path: Path) -> AppConfig:
     # Normalize primitive types for downstream strictness.
     processing = ProcessingConfig(
         extract_frame_second=int(raw["processing"]["extract_frame_second"]),
+        extract_frame_ratios=[float(v) for v in raw["processing"].get("extract_frame_ratios", [0.15, 0.5, 0.85])],
+        wipe_output_csv_on_start=bool(raw["processing"].get("wipe_output_csv_on_start", True)),
         device=str(raw["processing"]["device"]),
     )
     seo = SEOConfig(

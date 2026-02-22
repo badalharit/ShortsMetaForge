@@ -49,6 +49,38 @@ class VideoProcessor:
             raise RuntimeError(f"Unable to extract frame from {video_path.name}")
         return frame
 
+    def extract_frames(self, video_path: Path, ratios: List[float]) -> List["cv2.typing.MatLike"]:
+        """Extract multiple contextual frames (for example early/middle/late)."""
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            raise RuntimeError(f"Unable to open video: {video_path}")
+
+        fps = cap.get(cv2.CAP_PROP_FPS) or 0
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+
+        target_frames: List[int] = []
+        if frame_count > 0:
+            max_index = max(frame_count - 1, 0)
+            for ratio in ratios:
+                normalized = max(0.0, min(1.0, float(ratio)))
+                target_frames.append(int(round(normalized * max_index)))
+        else:
+            # Fallback when frame_count is unavailable.
+            base_index = int(self.frame_second * fps) if fps > 0 else 0
+            target_frames = [base_index for _ in ratios]
+
+        frames: List["cv2.typing.MatLike"] = []
+        for idx in target_frames:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ok, frame = cap.read()
+            if ok and frame is not None:
+                frames.append(frame)
+
+        cap.release()
+        if not frames:
+            raise RuntimeError(f"Unable to extract contextual frames from {video_path.name}")
+        return frames
+
     def move_to_processed(self, video_path: Path) -> Path:
         """Move file into processed folder with collision-safe renaming."""
         self.processed_dir.mkdir(parents=True, exist_ok=True)
