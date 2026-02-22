@@ -9,6 +9,7 @@ from modules.csv_writer import CSVWriter
 from modules.seo_engine import SEOEngine
 from modules.utils import (
     build_csv_row,
+    classify_content_strategy,
     enforce_local_runtime_cache_paths,
     ensure_directories,
     load_config,
@@ -73,8 +74,15 @@ def run(config_path: Path) -> None:
         try:
             # 1) Extract early/middle/late frames for context-aware analysis.
             frames = video_processor.extract_frames(video_path, ratios=config.processing.extract_frame_ratios)
+            duration_sec = video_processor.get_duration_seconds(video_path)
             # 2) Run aggregated multi-frame vision analysis.
             vision = vision_engine.analyze_frames(frames)
+            strategy, priority_bucket = classify_content_strategy(
+                duration_sec=duration_sec,
+                scene_confidence=vision.scene_confidence,
+                caption_confidence=vision.caption_confidence,
+                virality_score=vision.virality_score,
+            )
 
             # 3) Generate SEO-ready metadata payload.
             seo_payload = seo_engine.build_metadata(
@@ -83,15 +91,22 @@ def run(config_path: Path) -> None:
                 scene=vision.scene,
                 mood=vision.mood,
                 virality_score=vision.virality_score,
+                scene_confidence=vision.scene_confidence,
+                caption_confidence=vision.caption_confidence,
             )
 
             # 4) Persist metadata and move video after successful write.
             row = build_csv_row(
                 filename=filename,
                 seo_payload=seo_payload,
+                duration_sec=duration_sec,
                 scene=vision.scene,
                 mood=vision.mood,
+                scene_confidence=vision.scene_confidence,
+                caption_confidence=vision.caption_confidence,
                 virality_score=vision.virality_score,
+                strategy=strategy,
+                priority_bucket=priority_bucket,
             )
             csv_writer.append_row(row)
 

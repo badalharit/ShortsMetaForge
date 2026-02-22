@@ -20,6 +20,8 @@ class VisionResult:
     caption: str
     scene: str
     mood: str
+    scene_confidence: float
+    caption_confidence: float
     virality_score: int
 
 
@@ -73,6 +75,8 @@ class VisionEngine:
             caption=caption,
             scene=scene,
             mood=mood,
+            scene_confidence=float(scene_scores.get(scene, 0.0)),
+            caption_confidence=self._caption_confidence([caption]),
             virality_score=virality_score,
         )
 
@@ -101,18 +105,30 @@ class VisionEngine:
                     caption=caption,
                     scene=scene,
                     mood=mood,
+                    scene_confidence=float(scene_scores.get(scene, 0.0)),
+                    caption_confidence=self._caption_confidence([caption]),
                     virality_score=virality_score,
                 )
             )
 
         # Scene selection by average CLIP probability across all snapshots.
         scene = max(scene_prob_sums, key=scene_prob_sums.get)
+        scene_confidence = float(scene_prob_sums[scene] / max(1, len(per_frame)))
         # Mood selection by majority vote with center-frame tie-break.
         mood = self._aggregate_mood([item.mood for item in per_frame])
-        caption = self._merge_captions([item.caption for item in per_frame])
+        captions = [item.caption for item in per_frame]
+        caption = self._merge_captions(captions)
+        caption_confidence = self._caption_confidence(captions)
         virality_score = self._aggregate_virality([item.virality_score for item in per_frame])
 
-        return VisionResult(caption=caption, scene=scene, mood=mood, virality_score=virality_score)
+        return VisionResult(
+            caption=caption,
+            scene=scene,
+            mood=mood,
+            scene_confidence=scene_confidence,
+            caption_confidence=caption_confidence,
+            virality_score=virality_score,
+        )
 
     def _caption(self, image: Image.Image) -> str:
         """Generate a concise natural-language caption with BLIP."""
@@ -219,3 +235,15 @@ class VisionEngine:
         # Default 3-frame weighting: early, middle, late.
         weighted = (scores[0] * 0.2) + (scores[1] * 0.6) + (scores[2] * 0.2)
         return int(round(weighted))
+
+    def _caption_confidence(self, captions: List[str]) -> float:
+        """Estimate caption confidence from richness and cross-frame consistency."""
+        cleaned = [" ".join(c.split()).strip().lower() for c in captions if c and c.strip()]
+        if not cleaned:
+            return 0.0
+
+        unique_ratio = len(set(cleaned)) / len(cleaned)
+        token_counts = [len(c.split()) for c in cleaned]
+        richness = min(1.0, (sum(token_counts) / len(token_counts)) / 12.0)
+        # Higher confidence when captions are rich yet not random/noisy.
+        return max(0.0, min(1.0, (richness * 0.7) + ((1.0 - abs(unique_ratio - 0.66)) * 0.3)))

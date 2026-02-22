@@ -10,7 +10,9 @@ Production-grade AI metadata generation pipeline for YouTube Shorts.
 - Classifies scene (CLIP)
 - Infers mood + virality score
 - Generates YouTube-ready title, description, tags, hashtags
+- Generates A/B titles (`title_a`, `title_b`) for optional testing
 - Rebuilds CSV from incoming videos when fresh-run mode is enabled
+- Flags clips as `standalone` or `merge_candidate` using duration + confidence + score
 - Moves processed videos to `processed/`
 - Continues batch on per-video errors
 
@@ -133,16 +135,16 @@ Notes:
 
 ## CSV Schema
 
-Columns:
+Current CSV columns:
 
 ```text
-filename,title,description,tags,hashtags,scene,mood,virality_score
+filename,title,title_a,title_b,description,tags,hashtags,duration_sec,scene,mood,scene_confidence,caption_confidence,virality_score,strategy,priority_bucket
 ```
 
 Example row:
 
 ```csv
-city_clip_01.mp4,"Watch Till the End: City intense moment","Dramatic energy you can feel instantly.\nA city short: neon street at night with fast motion.\nSEO focus: city, dramatic, city shorts, dramatic vibes.\nWould you share this? Virality score: 78/100.\n#shorts","shorts, youtube shorts, viral shorts, city shorts, dramatic shorts, city, dramatic","#shorts #city #dramatic #viral #fyp",city,dramatic,78
+city_clip_01.mp4,"Cinematic City Visuals with Intense Energy","Cinematic City Visuals with Intense Energy","Watch This Polished City Sequence in Full","A refined visual moment built for short-form viewing.\nScene: Neon street at night with fast motion.\nRelated searches: city, dramatic, city shorts, cinematic shorts, visual storytelling.\nFollow for more premium shorts in this style.\n#shorts","shorts, youtube shorts, city shorts, dramatic vibes, city, dramatic, cinematic shorts","#shorts #city #dramatic #visualstorytelling #cinematic #trending",23.1,city,dramatic,0.79,0.71,78,standalone,high_priority
 ```
 
 ## Logging

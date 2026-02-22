@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""SEO metadata generation for Shorts titles, descriptions, tags, and hashtags."""
+"""Premium SEO metadata generation for YouTube Shorts."""
 
 import hashlib
 import re
@@ -10,43 +10,32 @@ from modules.keyword_engine import KeywordEngine
 
 
 class SEOEngine:
-    """Generate more human, varied, and CTR-friendly metadata from vision outputs."""
+    """Generate polished, non-clickbaity, niche-aligned metadata."""
 
-    _NOISE_WORDS = {
+    _NOISE = {
         "a",
         "an",
         "the",
-        "and",
-        "or",
         "with",
         "from",
         "this",
         "that",
-        "there",
-        "here",
         "video",
         "short",
         "frame",
         "showing",
     }
 
-    _MOOD_WORD = {
-        "peaceful": "calming",
-        "dramatic": "intense",
-        "energetic": "high-energy",
-        "mysterious": "mysterious",
-        "emotional": "heartfelt",
-    }
+    _NATURE_PACKS = [
+        ["nature relaxation", "calming scenery", "peaceful views", "mindful moments", "ambient nature"],
+        ["serene landscape", "stress relief visuals", "quiet nature", "slow living", "healing visuals"],
+        ["relaxing nature shorts", "meditative scenery", "peaceful atmosphere", "nature therapy", "visual calm"],
+    ]
 
-    _SCENE_STYLE = {
-        "nature": ["scenery", "landscape", "outdoor"],
-        "city": ["street", "urban", "citylife"],
-        "people": ["human moments", "real reactions", "daily life"],
-        "travel": ["wanderlust", "new places", "adventure"],
-        "food": ["foodie", "cooking", "flavor"],
-        "abstract": ["visual art", "motion aesthetic", "creative edit"],
-        "other": ["visual story", "quick moment", "clip"],
-    }
+    _GENERAL_PACKS = [
+        ["cinematic shorts", "visual storytelling", "aesthetic video", "trending shorts", "viral shorts"],
+        ["short form content", "scroll stopping clip", "immersive visuals", "engaging shorts", "youtube shorts"],
+    ]
 
     def __init__(self, max_tags: int, title_max_length: int) -> None:
         self.max_tags = max_tags
@@ -54,190 +43,231 @@ class SEOEngine:
         self.keyword_engine = KeywordEngine()
         self._seen_titles: set[str] = set()
 
-    def build_metadata(self, filename: str, caption: str, scene: str, mood: str, virality_score: int) -> Dict[str, str]:
-        """Build complete metadata payload for one video."""
-        keywords = self.keyword_engine.expand_keywords(caption=caption, scene=scene, mood=mood)
-        title = self._build_title(filename, caption, scene, mood)
-        description = self._build_description(filename, caption, scene, mood, keywords, virality_score)
-        tags = self._build_tags(caption, keywords, scene, mood)
-        hashtags = self._build_hashtags(caption, scene, mood)
-
-        return {
-            "title": title,
-            "description": description,
-            "tags": tags,
-            "hashtags": hashtags,
-        }
-
-    def _build_title(self, filename: str, caption: str, scene: str, mood: str) -> str:
-        """Compose a hook-heavy, curiosity-led title with variation."""
-        digest = self._digest(filename, caption, scene, mood)
-        focus_short = self._focus_phrase(caption, scene, mood, max_words=3)
-        mood_word = self._MOOD_WORD.get(mood, "captivating")
-
-        candidates = [
-            f"The {focus_short} Moment You Didn't Expect",
-            f"Why This {scene.title()} Clip Feels So {mood_word}",
-            f"POV: {focus_short} Hits Different",
-            f"Watch This {scene.title()} Scene to the End",
-            f"This {focus_short} Shot Is Weirdly Addictive",
-            f"Can You Explain This {mood_word} {scene.title()} Moment?",
-            f"One {focus_short} Detail Changes Everything",
-            f"This {scene.title()} Short Has a {mood_word} Twist",
-            f"Not Ready for This {focus_short} Reveal",
-            f"{focus_short} in 20 Seconds | {scene.title()} Shorts",
-        ]
-
-        return self._pick_unique_title(candidates, digest)
-
-    def _build_description(
+    def build_metadata(
         self,
         filename: str,
         caption: str,
         scene: str,
         mood: str,
-        keywords: List[str],
         virality_score: int,
-    ) -> str:
-        """Create 4 polished lines + #shorts footer."""
-        digest = self._digest(filename, caption, scene, mood, str(virality_score))
-        focus_phrase = self._focus_phrase(caption, scene, mood, max_words=6)
-        clean_caption = self._clean_sentence(caption)
-        mood_word = self._MOOD_WORD.get(mood, mood)
-        style_token = self._pick(self._SCENE_STYLE.get(scene, ["clip"]), digest // 7)
-        top_searches = ", ".join(keywords[:5])
+        scene_confidence: float,
+        caption_confidence: float,
+    ) -> Dict[str, str]:
+        """Build production metadata with A/B titles and confidence-aware copy."""
+        digest = self._digest(filename, caption, scene, mood)
+        focus = self._focus_phrase(caption, scene, mood, 5)
+        low_confidence = scene_confidence < 0.45 or caption_confidence < 0.4
+        keywords = self.keyword_engine.expand_keywords(caption=caption, scene=scene, mood=mood)
+        pack = self._keyword_pack(scene, mood, digest)
+        merged_keywords = self._dedupe_lower(pack + keywords)
 
+        if low_confidence:
+            title_a, title_b = self._fallback_titles(focus, scene, digest)
+            description = self._fallback_description(scene, merged_keywords)
+        else:
+            title_a, title_b = self._premium_titles(focus, scene, mood, digest)
+            description = self._premium_description(focus, caption, scene, mood, merged_keywords, digest)
+
+        title_a = self._to_unique_title(title_a)
+        title_b = self._to_unique_title(title_b, allow_duplicate_of=title_a)
+        tags = self._build_tags(scene, mood, merged_keywords, caption)
+        hashtags = self._build_hashtags(scene, mood, caption, digest)
+
+        return {
+            "title": title_a,
+            "title_a": title_a,
+            "title_b": title_b,
+            "description": description,
+            "tags": tags,
+            "hashtags": hashtags,
+        }
+
+    def _premium_titles(self, focus: str, scene: str, mood: str, digest: int) -> tuple[str, str]:
+        mood_word = {
+            "peaceful": "calm",
+            "dramatic": "intense",
+            "energetic": "vibrant",
+            "mysterious": "mystic",
+            "emotional": "soulful",
+        }.get(mood, "captivating")
+
+        if scene == "nature" and mood == "peaceful":
+            options_a = [
+                f"20 Seconds of Pure Calm in Nature",
+                f"POV: The Most Peaceful View You'll See Today",
+                f"A Quiet Nature Moment to Reset Your Mind",
+                f"This Nature Scene Feels Like a Deep Breath",
+            ]
+            options_b = [
+                f"Serene Nature Short for Instant Calm",
+                f"Gentle Nature Vibes in One Beautiful Shot",
+                f"If You Needed Calm Today, Watch This",
+                f"Nature Therapy in One Short Clip",
+            ]
+        else:
+            options_a = [
+                f"{scene.title()} Visuals with a {mood_word} Finish",
+                f"Short, Cinematic, and {mood_word} from Start to End",
+                f"This {scene.title()} Clip Holds Attention Instantly",
+                f"One {focus} Moment That Feels Premium",
+            ]
+            options_b = [
+                f"Polished {scene.title()} Short with {mood_word} Energy",
+                f"{focus} in a Scroll-Stopping Short",
+                f"A Clean {scene.title()} Sequence with Strong Atmosphere",
+                f"Watch This {scene.title()} Moment in Full",
+            ]
+
+        return options_a[digest % len(options_a)], options_b[(digest // 5) % len(options_b)]
+
+    def _premium_description(
+        self,
+        focus: str,
+        caption: str,
+        scene: str,
+        mood: str,
+        keywords: List[str],
+        digest: int,
+    ) -> str:
+        clean_caption = self._clean(caption)
         hook_lines = [
-            f"{scene.title()} visuals with a {mood_word} edge that instantly pulls you in.",
-            f"Scroll-stopping {scene} energy with a polished {mood_word} finish.",
-            f"If you enjoy {style_token}, this short delivers a premium visual moment.",
-            f"A sharp {scene} sequence with a {mood_word} tone that keeps attention locked.",
-            f"Cinematic pacing, strong atmosphere, and a distinctly {mood_word} vibe.",
+            "A calm visual pause designed for a busy day.",
+            "Cinematic short-form storytelling with a soothing finish.",
+            "A refined visual moment that slows the scroll.",
+            "A clean, immersive short built for mood and atmosphere.",
         ]
+        if scene == "nature" and mood == "peaceful":
+            hook_lines = [
+                "A peaceful nature pause to reset your mind.",
+                "Soft scenery, steady pacing, and pure calm energy.",
+                "A gentle visual reset in under a minute.",
+                "A soothing nature moment worth replaying.",
+            ]
+
         context_lines = [
-            f"On screen: {clean_caption}.",
-            f"Story in one frame: {focus_phrase}.",
-            f"Context: {clean_caption}.",
-            f"What makes it hit: {focus_phrase}.",
+            f"Scene: {clean_caption}.",
+            f"Visual focus: {focus}.",
+            f"In this short: {clean_caption}.",
+            f"Frame story: {focus}.",
         ]
         seo_lines = [
-            f"Related searches: {top_searches}.",
-            f"SEO focus: {top_searches}.",
-            f"Keywords: {top_searches}.",
-            f"Best match topics: {top_searches}.",
+            f"Discover via: {', '.join(keywords[:5])}.",
+            f"Related searches: {', '.join(keywords[:5])}.",
+            f"Best match topics: {', '.join(keywords[:5])}.",
         ]
         cta_lines = [
-            f"Would you replay this short or send it to a friend?",
-            f"Follow for more high-quality {scene} shorts with this vibe.",
-            f"Share this with someone who appreciates clean visual storytelling.",
-            f"Save this short if this style matches your feed.",
+            "If this vibe fits your feed, save it for later.",
+            "Follow for more premium shorts in this style.",
+            "Share this with someone who needs a calm moment.",
+            "Replay once and notice the details.",
         ]
 
-        line1 = self._pick(hook_lines, digest)
-        line2 = self._pick(context_lines, digest // 3)
-        line3 = self._pick(seo_lines, digest // 5)
-        line4 = self._pick(cta_lines, digest // 11)
-        return "\n".join([line1, line2, line3, line4, "#shorts"])
+        return "\n".join(
+            [
+                hook_lines[digest % len(hook_lines)],
+                context_lines[(digest // 3) % len(context_lines)],
+                seo_lines[(digest // 7) % len(seo_lines)],
+                cta_lines[(digest // 11) % len(cta_lines)],
+                "#shorts",
+            ]
+        )
 
-    def _build_tags(self, caption: str, keywords: List[str], scene: str, mood: str) -> str:
-        """Build keyword-rich, non-spammy comma-separated tags."""
+    def _fallback_titles(self, focus: str, scene: str, digest: int) -> tuple[str, str]:
+        safe_a = [
+            f"Beautiful {scene.title()} Short with a Clean Visual Style",
+            f"Immersive {scene.title()} Clip for Your Feed",
+            f"Atmospheric {scene.title()} Visual in One Short",
+        ]
+        safe_b = [
+            f"Quick {scene.title()} Moment with Strong Visual Mood",
+            f"Aesthetic {scene.title()} Short Worth Rewatching",
+            f"{focus} | Visual Short",
+        ]
+        return safe_a[digest % len(safe_a)], safe_b[(digest // 5) % len(safe_b)]
+
+    def _fallback_description(self, scene: str, keywords: List[str]) -> str:
+        return "\n".join(
+            [
+                "A polished short clip with strong visual atmosphere.",
+                f"Theme: {scene.title()} visual storytelling.",
+                f"Discover via: {', '.join(keywords[:5])}.",
+                "Follow for more high-quality short-form visuals.",
+                "#shorts",
+            ]
+        )
+
+    def _build_tags(self, scene: str, mood: str, keywords: List[str], caption: str) -> str:
         caption_terms = self._caption_terms(caption)
         base = [
             "shorts",
             "youtube shorts",
-            "viral shorts",
             f"{scene} shorts",
-            f"{mood} shorts",
-            f"{scene} video",
             f"{mood} vibes",
             scene,
             mood,
+            "cinematic shorts",
         ]
+        merged = self._dedupe_lower(base + keywords + caption_terms)
+        return ", ".join(merged[: self.max_tags])
 
-        merged: List[str] = []
-        for item in base + keywords + caption_terms:
-            token = item.strip().lower()
-            if not token or token in merged:
-                continue
-            merged.append(token)
-            if len(merged) >= self.max_tags:
-                break
-        return ", ".join(merged)
-
-    def _build_hashtags(self, caption: str, scene: str, mood: str) -> str:
-        """Build concise hashtags with mandatory #shorts."""
+    def _build_hashtags(self, scene: str, mood: str, caption: str, digest: int) -> str:
         terms = self._caption_terms(caption)[:2]
         dynamic = [f"#{t.replace(' ', '')}" for t in terms if t]
-        tags = [
-            "#shorts",
-            f"#{scene.replace(' ', '')}",
-            f"#{mood.replace(' ', '')}",
-            "#viralshorts",
-            *dynamic,
-            "#trending",
-        ]
-        deduped: List[str] = []
-        for tag in tags:
+        pool = ["#shorts", f"#{scene}", f"#{mood}", "#visualstorytelling", "#cinematic", "#trending", *dynamic]
+        deduped = []
+        for tag in pool:
             low = tag.lower()
             if low not in [d.lower() for d in deduped]:
                 deduped.append(tag)
-        return " ".join(deduped[:6])
+        start = digest % 2
+        fixed = deduped[:4]
+        tail = deduped[4 + start : 6 + start]
+        return " ".join((fixed + tail)[:6])
 
-    def _pick_unique_title(self, candidates: List[str], digest: int) -> str:
-        """Pick deterministic title with uniqueness fallback."""
-        for i in range(len(candidates)):
-            candidate = candidates[(digest + i) % len(candidates)]
-            candidate = candidate[: self.title_max_length].rstrip(" :,-")
-            if candidate not in self._seen_titles:
-                self._seen_titles.add(candidate)
-                return candidate
+    def _keyword_pack(self, scene: str, mood: str, digest: int) -> List[str]:
+        if scene == "nature" and mood == "peaceful":
+            return self._NATURE_PACKS[digest % len(self._NATURE_PACKS)]
+        return self._GENERAL_PACKS[digest % len(self._GENERAL_PACKS)]
 
-        fallback = candidates[digest % len(candidates)]
-        suffix = f" | {digest % 97}"
-        allowed = self.title_max_length - len(suffix)
-        titled = f"{fallback[:max(1, allowed)].rstrip(' :,-')}{suffix}"
-        self._seen_titles.add(titled)
-        return titled
+    def _to_unique_title(self, title: str, allow_duplicate_of: str | None = None) -> str:
+        trimmed = title[: self.title_max_length].rstrip(" :,-")
+        if trimmed == allow_duplicate_of:
+            trimmed = f"{trimmed[: max(1, self.title_max_length - 4)]} Alt"
+        if trimmed in self._seen_titles:
+            suffix = " II"
+            trimmed = f"{trimmed[: max(1, self.title_max_length - len(suffix))]}{suffix}"
+        self._seen_titles.add(trimmed)
+        return trimmed
 
     def _focus_phrase(self, caption: str, scene: str, mood: str, max_words: int) -> str:
-        """Extract a natural focus phrase from caption."""
         words = re.findall(r"[A-Za-z]+", caption.lower())
-        filtered = [
-            w
-            for w in words
-            if len(w) > 2 and w not in self._NOISE_WORDS and w not in {scene.lower(), mood.lower()}
-        ]
+        filtered = [w for w in words if len(w) > 2 and w not in self._NOISE and w not in {scene, mood}]
         phrase = " ".join(filtered[:max_words]).strip()
-        return phrase.title() if phrase else f"{scene.title()} {mood.title()} Vibe"
+        return phrase.title() if phrase else f"{scene.title()} {mood.title()} Moment"
 
     def _caption_terms(self, caption: str) -> List[str]:
-        """Return useful single-word and two-word caption terms for tags/hashtags."""
         words = re.findall(r"[A-Za-z]+", caption.lower())
-        filtered = [w for w in words if len(w) > 2 and w not in self._NOISE_WORDS]
-        singles: List[str] = []
-        for word in filtered:
-            if word not in singles:
-                singles.append(word)
+        filtered = [w for w in words if len(w) > 2 and w not in self._NOISE]
+        unique = []
+        for w in filtered:
+            if w not in unique:
+                unique.append(w)
+        return unique[:8]
 
-        bigrams: List[str] = []
-        for i in range(len(filtered) - 1):
-            phrase = f"{filtered[i]} {filtered[i + 1]}"
-            if phrase not in bigrams:
-                bigrams.append(phrase)
+    def _clean(self, text: str) -> str:
+        clean = " ".join(text.strip().split())
+        if not clean:
+            return "visual sequence"
+        clean = clean[0].upper() + clean[1:]
+        return clean.rstrip(".!?")
 
-        return (singles + bigrams)[:10]
-
-    def _clean_sentence(self, text: str) -> str:
-        """Normalize caption sentence casing/punctuation for description line."""
-        cleaned = " ".join(text.strip().split())
-        cleaned = cleaned[0].upper() + cleaned[1:] if cleaned else cleaned
-        cleaned = cleaned.rstrip(".!?")
-        return cleaned
+    def _dedupe_lower(self, values: List[str]) -> List[str]:
+        out: List[str] = []
+        for v in values:
+            token = v.strip().lower()
+            if token and token not in out:
+                out.append(token)
+        return out
 
     def _digest(self, *parts: str) -> int:
-        """Deterministic hash helper for stable template variation."""
         return int(hashlib.md5("|".join(parts).encode("utf-8")).hexdigest(), 16)
-
-    def _pick(self, values: List[str], seed: int) -> str:
-        """Pick stable list item from hash-derived seed."""
-        return values[seed % len(values)]

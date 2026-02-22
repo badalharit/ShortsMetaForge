@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 import json
 import logging
 
@@ -140,21 +140,52 @@ def enforce_local_runtime_cache_paths(project_root: Path) -> None:
 def build_csv_row(
     filename: str,
     seo_payload: Dict[str, str],
+    duration_sec: float,
     scene: str,
     mood: str,
+    scene_confidence: float,
+    caption_confidence: float,
     virality_score: int,
+    strategy: str,
+    priority_bucket: str,
 ) -> Dict[str, object]:
     """Shape metadata into the canonical CSV row schema."""
     return {
         "filename": filename,
-        "title": seo_payload["title"],
+        "title": seo_payload["title_a"],
+        "title_a": seo_payload["title_a"],
+        "title_b": seo_payload["title_b"],
         "description": seo_payload["description"],
         "tags": seo_payload["tags"],
         "hashtags": seo_payload["hashtags"],
+        "duration_sec": round(float(duration_sec), 2),
         "scene": scene,
         "mood": mood,
+        "scene_confidence": round(float(scene_confidence), 4),
+        "caption_confidence": round(float(caption_confidence), 4),
         "virality_score": virality_score,
+        "strategy": strategy,
+        "priority_bucket": priority_bucket,
     }
+
+
+def classify_content_strategy(duration_sec: float, scene_confidence: float, caption_confidence: float, virality_score: int) -> Tuple[str, str]:
+    """Classify clip strategy and posting priority from duration/confidence/score."""
+    confidence = (scene_confidence * 0.7) + (caption_confidence * 0.3)
+
+    if duration_sec <= 9.0:
+        strategy = "standalone" if (confidence >= 0.62 and virality_score >= 64) else "merge_candidate"
+    else:
+        strategy = "standalone"
+
+    if virality_score >= 80 and confidence >= 0.72:
+        bucket = "high_priority"
+    elif virality_score >= 65 and confidence >= 0.58:
+        bucket = "medium_priority"
+    else:
+        bucket = "low_priority"
+
+    return strategy, bucket
 
 
 def resolve_project_root() -> Path:

@@ -11,12 +11,19 @@ import pandas as pd
 CSV_COLUMNS = [
     "filename",
     "title",
+    "title_a",
+    "title_b",
     "description",
     "tags",
     "hashtags",
+    "duration_sec",
     "scene",
     "mood",
+    "scene_confidence",
+    "caption_confidence",
     "virality_score",
+    "strategy",
+    "priority_bucket",
 ]
 
 
