@@ -158,6 +158,7 @@ def build_csv_row(
         "title_a": seo_payload["title_a"],
         "title_b": seo_payload["title_b"],
         "description": seo_payload["description"],
+        "first_comment": seo_payload["first_comment"],
         "tags": seo_payload["tags"],
         "hashtags": seo_payload["hashtags"],
         "duration_sec": round(float(duration_sec), 2),

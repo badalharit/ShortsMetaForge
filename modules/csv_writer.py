@@ -14,6 +14,7 @@ CSV_COLUMNS = [
     "title_a",
     "title_b",
     "description",
+    "first_comment",
     "tags",
     "hashtags",
     "duration_sec",

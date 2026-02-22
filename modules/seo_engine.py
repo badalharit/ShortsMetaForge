@@ -80,6 +80,11 @@ class SEOEngine:
         self._recent_title_structures: Deque[str] = deque(maxlen=25)
         self._recent_titles: Deque[str] = deque(maxlen=40)
         self._recent_phrases: Deque[str] = deque(maxlen=20)  # long-tail, CTA, emotional adjectives.
+        # First-comment anti-pattern memory.
+        self._recent_comment_openings: Deque[str] = deque(maxlen=10)
+        self._recent_comment_phrases: Deque[str] = deque(maxlen=20)
+        self._recent_comments: Deque[str] = deque(maxlen=30)
+        self._emoji_cursor = 0
 
     def build_metadata(
         self,
@@ -134,6 +139,13 @@ class SEOEngine:
         )
         tags = self._build_tags(scene=scene, mood=mood, primary_keyword=primary_keyword, keyword_pool=keyword_pool, long_tails=long_tails)
         hashtags = self._build_hashtags(scene=scene, mood=mood, focus=focus, long_tails=long_tails, digest=digest)
+        first_comment = self._build_first_comment(
+            scene=scene,
+            mood=mood,
+            focus=focus,
+            virality_score=virality_score,
+            digest=digest,
+        )
 
         return {
             "title": title_a,
@@ -142,6 +154,7 @@ class SEOEngine:
             "description": description,
             "tags": tags,
             "hashtags": hashtags,
+            "first_comment": first_comment,
         }
 
     def _build_title(
@@ -522,3 +535,95 @@ class SEOEngine:
             if not near_duplicate:
                 filtered.append(tag)
         return filtered
+
+    def _build_first_comment(self, scene: str, mood: str, focus: str, virality_score: int, digest: int) -> str:
+        """Generate a 1-2 line engagement comment with anti-repetition safeguards."""
+        score_norm = virality_score / 100.0
+        emotion = self._pick_emotion_word(mood, digest + 17)
+        scene_label = self._title_case(scene)
+        focus_short = self._title_case(" ".join(re.findall(r"[A-Za-z]+", focus)[:3]) or f"{scene} moment")
+
+        # Rotate emoji sets (max 2) to avoid repetitive comment signatures.
+        emoji_sets = [("🌿", "✨"), ("🍃", "🌅"), ("🫧", "🎧"), ("🌙", "🍂")]
+        chosen_emojis = emoji_sets[self._emoji_cursor % len(emoji_sets)]
+        self._emoji_cursor += 1
+        e1, e2 = chosen_emojis
+
+        strong_hook = score_norm > 0.8
+        if self.specialization_mode == "nature":
+            # Nature-only mode: calm, reflective, immersive tone.
+            frameworks = [
+                ("what_did_you_feel", f"What did you feel in this {focus_short.lower()} {e1}"),
+                ("which_vibe", f"Which vibe fits this frame best: stillness or wonder?"),
+                ("can_you_hear", f"Can you almost hear the breeze in this {scene.lower()} clip? {e2}"),
+                ("are_you", f"Are you a sunrise person or a dusk person in scenes like this?"),
+                ("one_quiet_line", f"A quiet {scene.lower()} moment, and everything slows down."),
+                ("did_you_rewatch", f"Did this loop make you watch one more time?"),
+            ]
+            if strong_hook:
+                frameworks.append(
+                    ("felt_this", f"This one feels deeply {emotion} from the first second {e1}")
+                )
+        else:
+            frameworks = [
+                ("what_did_you_feel", f"What did you feel first watching this {scene.lower()} short?"),
+                ("which_one", f"Which detail stood out more here: color, motion, or mood?"),
+                ("can_you_sense", f"Can you sense the {emotion} energy in this frame? {e1}"),
+                ("are_you_this", f"Are you someone who rewatches visuals like this?"),
+                ("poetic_drop", f"One frame, one mood, and the scroll pauses."),
+                ("loop_hook", f"Did the ending make you loop it again? {e2}"),
+            ]
+            if strong_hook:
+                frameworks.append(
+                    ("bold_reflect", f"This hit harder than expected, right?")
+                )
+
+        # Opening memory: do not reuse same opening key within last 10 generations.
+        ordered = frameworks[digest % len(frameworks):] + frameworks[: digest % len(frameworks)]
+        selected_key, line1 = ordered[0]
+        for key, candidate in ordered:
+            if key not in self._recent_comment_openings:
+                selected_key, line1 = key, candidate
+                break
+
+        line2_options = [
+            "Drop one word in the comments.",
+            "Curious how you'd describe this in one line.",
+            "What would you call this mood?",
+            "Would you watch this again tonight?",
+        ]
+        if self.specialization_mode == "nature":
+            line2_options = [
+                "Drop one word for this atmosphere.",
+                "What would you name this moment?",
+                "Would you pause here for a while?",
+                "What mood does this leave you with?",
+            ]
+
+        line2 = self._pick(line2_options, digest // 3)
+        comment = f"{self._normalize_line(line1)}\n{self._normalize_line(line2)}"
+
+        # Phrase memory + semantic dedupe: avoid repeating recent comment intent.
+        phrase_key = self._comment_phrase_key(comment)
+        if phrase_key in self._recent_comment_phrases or self._is_comment_too_similar(comment):
+            alt_idx = (digest // 5) % len(ordered)
+            _, alt_line1 = ordered[alt_idx]
+            alt_line2 = self._pick(line2_options, digest // 7)
+            comment = f"{self._normalize_line(alt_line1)}\n{self._normalize_line(alt_line2)}"
+            phrase_key = self._comment_phrase_key(comment)
+
+        self._recent_comment_openings.append(selected_key)
+        self._recent_comment_phrases.append(phrase_key)
+        self._recent_comments.append(comment.lower())
+        return comment
+
+    def _comment_phrase_key(self, comment: str) -> str:
+        words = re.findall(r"[a-z]+", comment.lower())
+        return " ".join(words[:6])
+
+    def _is_comment_too_similar(self, candidate: str) -> bool:
+        normalized = candidate.lower().strip()
+        for recent in self._recent_comments:
+            if SequenceMatcher(a=normalized, b=recent).ratio() >= 0.84:
+                return True
+        return False
