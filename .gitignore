@@ -7,3 +7,4 @@ incoming/
 processed/
 data/*.csv
 *.log
+data/*
